@@ -1,0 +1,29 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31424.327
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XmlXlsConverter", "XmlXlsConverter\XmlXlsConverter.csproj", "{01AA9F81-77BC-4EB1-998D-32B87E100539}"
+EndProject
+Project("{54435603-DBB4-11D2-8724-00A0C9A8B90C}") = "XLS2XMLSetup", "XLS2XMLSetup\XLS2XMLSetup.vdproj", "{BC830FFF-F902-4B2F-BCBD-282AFC734600}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{01AA9F81-77BC-4EB1-998D-32B87E100539}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{01AA9F81-77BC-4EB1-998D-32B87E100539}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{01AA9F81-77BC-4EB1-998D-32B87E100539}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{01AA9F81-77BC-4EB1-998D-32B87E100539}.Release|Any CPU.Build.0 = Release|Any CPU
+		{BC830FFF-F902-4B2F-BCBD-282AFC734600}.Debug|Any CPU.ActiveCfg = Debug
+		{BC830FFF-F902-4B2F-BCBD-282AFC734600}.Release|Any CPU.ActiveCfg = Release
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E95474A7-7928-4063-9A87-1004630497BA}
+	EndGlobalSection
+EndGlobal

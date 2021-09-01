@@ -1,0 +1,294 @@
+        private void BuildXml(DataSet ds)
+        {
+            string cariKod = ds.Tables[0].Rows[1]["cari kodu"].ToString();
+            int vatRate = 18, odemePlanKodu = 0;
+            bool hasDiscount = false;
+            List<string> invoiceList = new List<string>();
+            List<string> uniqueInvoiceList = new List<string>();
+            Dictionary<string, decimal[]> invoicesAndTotals = new Dictionary<string, decimal[]>();
+            Dictionary<string, DateTime> invoiceDates = new Dictionary<string, DateTime>();
+            Dictionary<string, string> serialDetails = new Dictionary<string, string>();
+            Dictionary<string, string> cariDetails = new Dictionary<string, string>();
+            Dictionary<string, string> noteDict = new Dictionary<string, string>();
+            getInvoiceNumber(compName);
+            //Initialize invoiceList and cariKod
+            foreach (DataRow row in ds.Tables[0].Rows)
+            {
+                if (row["Fis No"].ToString() != "")
+                {
+                    if (invoicesAndTotals.ContainsKey(row["Fis no"].ToString()))
+                    {
+                        invoicesAndTotals[row["Fis no"].ToString()][0] += Convert.ToDecimal(row["Toplam Tutar"].ToString()); //totalTutar
+                        invoicesAndTotals[row["Fis no"].ToString()][1] += (Math.Round((Convert.ToDecimal(row["Toplam Tutar"]) * 50) / 59, 2)) - (Convert.ToDecimal(row["indirim oranı"]) / 100 * Math.Round((Convert.ToDecimal(row["Toplam Tutar"]) * 50) / 59, 2)); //indirimliTutar
+                    }
+                    else
+                    {
+                        decimal totalTutar = Convert.ToDecimal(row["Toplam Tutar"].ToString());
+                        decimal indirimliTotal = (Math.Round((Convert.ToDecimal(row["Toplam Tutar"]) * 50) / 59, 2)) - (Convert.ToDecimal(row["indirim oranı"]) / 100 * Math.Round((Convert.ToDecimal(row["Toplam Tutar"]) * 50) / 59, 2));
+                        //decimal indirimTotal += Convert.ToDecimal(Math.Round((Convert.ToDecimal(row["Toplam Tutar"]) * 50) / 59, 2) / 100 * Convert.ToDecimal(row["indirim oranı"]));
+                        invoicesAndTotals.Add(row["Fis no"].ToString(), new decimal[] { totalTutar, indirimliTotal });
+                        invoiceDates[row["Fis no"].ToString()] = DateTime.Parse(row["Tarih"].ToString());
+                        cariDetails[row["Fis no"].ToString()] = row["cari kodu"].ToString();
+                        noteDict[row["Fis no"].ToString()] = row["satır açıklaması"].ToString();
+                    }
+                    if (Convert.ToDecimal(row["indirim oranı"]) > 0)
+                        hasDiscount = true;
+                    //odemePlanKodu = Convert.ToInt32(row["ödeme plan kodu"]);
+                }
+            }
+            uniqueInvoiceList = invoiceList.Distinct().ToList();
+
+            var sts = new XmlWriterSettings()
+            {
+                Indent = true,
+                Encoding = Encoding.GetEncoding("ISO-8859-9"),
+                ConformanceLevel = ConformanceLevel.Document,
+                IndentChars = ("  "),
+            };
+            XmlWriter writer = XmlWriter.Create(filePath + xlsFileName + ".xml", sts);
+            writer.WriteStartElement("SALES_INVOICES");
+            foreach (KeyValuePair<string, decimal[]> fis in invoicesAndTotals)
+            {
+                writer.WriteStartElement("INVOICE");
+                writer.WriteAttributeString("DBOP", "INS");
+                writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                writer.WriteElementString("TYPE", "8");
+                writer.WriteElementString("NUMBER", nameString + invoiceDates[fis.Key].ToString("yyyy") + invoiceNumber.ToString("000000000"));
+                //writer.WriteElementString("NUMBER", nameString + invoiceDates[fis.Key].ToString("yyyy") + invoiceNumber.ToString("000000000"));
+                writer.WriteElementString("DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("TIME", "254936320");
+                //writer.WriteElementString("DOC_NUMBER", nameString + billDate.ToString("yyyyMM") + billNo.ToString("0000000"));
+                cariControl(cariDetails[fis.Key]);
+                writer.WriteElementString("ARP_CODE", cariDetails[fis.Key]);
+                writer.WriteElementString("POST_FLAGS", "247");
+                writer.WriteElementString("VAT_RATE", vatRate.ToString());
+                if (hasDiscount)
+                {
+                    //writer.WriteElementString("ADD_DISCOUNTS", Math.Round(indirimTotal, 2).ToString().Replace(",", "."));
+                    //writer.WriteElementString("TOTAL_DISCOUNTS", Math.Round(indirimTotal, 2).ToString().Replace(",", "."));
+                    writer.WriteElementString("TOTAL_DISCOUNTED", Math.Round(Convert.ToDecimal(fis.Value[0]) * 50 / 59, 2).ToString().Replace(",", "."));
+                }
+                writer.WriteElementString("TOTAL_VAT", (Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("TOTAL_GROSS", Math.Round(Convert.ToDecimal(fis.Value[0]) * 50 / 59, 2).ToString().Replace(",", "."));
+                writer.WriteElementString("TOTAL_NET", (fis.Value[1] + Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("NOTES2", noteDict[fis.Key]);
+                writer.WriteElementString("TC_NET", (fis.Value[1] + Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("RC_XRATE", "1");
+                writer.WriteElementString("RC_NET", (fis.Value[1] + Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("CREATED_BY", "1");
+                writer.WriteElementString("DATE_CREATED", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("HOUR_CREATED", invoiceDates[fis.Key].ToString("hh"));
+                writer.WriteElementString("MIN_CREATED", invoiceDates[fis.Key].ToString("mm"));
+                writer.WriteElementString("SEC_CREATED", invoiceDates[fis.Key].ToString("ss"));
+                //writer.WriteElementString("RC_XRATE", "1");
+                //writer.WriteElementString("RC_NET", (indirimliTotal + Math.Round(indirimliTotal * 18 / 100, 2)).ToString().Replace(",", "."));
+                //writer.WriteElementString("PAYMENT_CODE", odemePlanKodu.ToString());
+                writer.WriteElementString("CURRSEL_TOTALS", "1");
+                writer.WriteElementString("DATA_REFERENCE", "1");
+                writer.WriteStartElement("DISPATCHES");
+                writer.WriteStartElement("DISPATCH");
+                writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                writer.WriteElementString("TYPE", "8");
+                writer.WriteElementString("NUMBER", invoiceNumber.ToString("0000000000000000"));
+                writer.WriteElementString("DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("TIME", "254936320");
+                writer.WriteElementString("INVOICE_NUMBER", nameString + invoiceDates[fis.Key].ToString("yyyy") + invoiceNumber.ToString("000000000"));
+                writer.WriteElementString("ARP_CODE", cariDetails[fis.Key]);
+                writer.WriteElementString("INVOICED", "1");
+                if (hasDiscount)
+                {
+                    //writer.WriteElementString("ADD_DISCOUNTS", Math.Round(indirimTotal, 2).ToString().Replace(",", "."));
+                    //writer.WriteElementString("TOTAL_DISCOUNTS", Math.Round(indirimTotal, 2).ToString().Replace(",", "."));
+                    writer.WriteElementString("TOTAL_DISCOUNTED", Math.Round(Convert.ToDecimal(fis.Value[0]) * 50 / 59, 2).ToString().Replace(",", "."));
+                }
+                writer.WriteElementString("TOTAL_VAT", (Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("TOTAL_GROSS", Math.Round(Convert.ToDecimal(fis.Value[0]) * 50 / 59, 2).ToString().Replace(",", "."));
+                writer.WriteElementString("TOTAL_NET", (fis.Value[1] + Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("RC_RATE", "1");
+                writer.WriteElementString("RC_NET", (fis.Value[1] + Math.Round(fis.Value[1] * 18 / 100, 2)).ToString().Replace(",", "."));
+                writer.WriteElementString("CREATED_BY", "1");
+                writer.WriteElementString("DATE_CREATED", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("HOUR_CREATED", invoiceDates[fis.Key].ToString("hh"));
+                writer.WriteElementString("MIN_CREATED", invoiceDates[fis.Key].ToString("mm"));
+                writer.WriteElementString("SEC_CREATED", invoiceDates[fis.Key].ToString("ss"));
+                writer.WriteElementString("CURRSEL_TOTALS", "1");
+                writer.WriteElementString("DATA_REFERENCE", "1");
+                writer.WriteElementString("ORIG_NUMBER", "0000000000000001");
+                writer.WriteStartElement("ORGLOGOID");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DEDUCTIONPART1", "2");
+                writer.WriteElementString("DEDUCTIONPART2", "3");
+                writer.WriteElementString("AFFECT_RISK", "0");
+                writer.WriteElementString("DISP_STATUS", "1");
+                writer.WriteElementString("SHIP_DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("SHIP_TIME", "254936356");
+                writer.WriteElementString("DOC_DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("DOC_TIME", "254936320");
+                if (cariIsEinvoice(cariDetails[fis.Key]))
+                    writer.WriteElementString("EINVOICE", "1");
+                writer.WriteEndElement(); //DISPATCH
+                writer.WriteEndElement(); //DISPATTCHES
+                writer.Flush();
+                writer.WriteStartElement("TRANSACTIONS");
+                foreach (DataRow row in ds.Tables[0].Rows)
+                {
+                    if (!row.IsNull("Fis No") && fis.Key == row["Fis No"].ToString())
+                    {
+                        writer.WriteStartElement("TRANSACTION");
+                        writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                        writer.WriteElementString("TYPE", "0");
+                        if (row.IsNull("Seri/Lot"))
+                        {
+                            writer.WriteElementString("MASTER_CODE", "STOK02"); //URUN
+                            //writer.WriteElementString("MASTER_CODE", row["Ürün Kodu"].ToString()); //URUN
+                            writer.WriteElementString("QUANTITY", Convert.ToDecimal(row["Miktar"]).ToString().Replace(',', '.'));
+                        }
+                        else
+                        {
+                            writer.WriteElementString("MASTER_CODE", "STOK03"); //SERI
+                            writer.WriteElementString("QUANTITY", "1");
+                        }
+                        writer.WriteElementString("PRICE", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Birim Fiyat"])), 2).ToString().Replace(',', '.'));
+                        writer.WriteElementString("TOTAL", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"])), 2).ToString().Replace(',', '.'));
+                        //writer.WriteElementString("DESCRIPTION", row["satır açıklaması"].ToString());
+                        if (Convert.ToDecimal(row["indirim oranı"]) > 0)
+                        {
+                            //writer.WriteElementString("COST_DISTR", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) / 100 * Convert.ToDecimal(row["indirim oranı"])), 2).ToString().Replace(',', '.'));
+                            //writer.WriteElementString("DISCOUNT_DISTR", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) / 100 * Convert.ToDecimal(row["indirim oranı"])), 2).ToString().Replace(',', '.'));
+                        }
+                        writer.WriteElementString("RC_XRATE", "1");
+                        writer.WriteElementString("UNIT_CODE", row["Birim"].ToString());
+                        writer.WriteElementString("UNIT_CONV1", "1");
+                        writer.WriteElementString("UNIT_CONV2", "1");
+                        writer.WriteElementString("VAT_RATE", "18");
+                        writer.WriteElementString("VAT_AMOUNT", Math.Round(Convert.ToDecimal((Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) - Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) / 100 * Convert.ToDecimal(row["indirim oranı"]))) / 100 * 18), 2).ToString().Replace(',', '.'));//kdv
+                        writer.WriteElementString("VAT_BASE", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) - Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) / 100 * Convert.ToDecimal(row["indirim oranı"])), 2).ToString().Replace(',', '.'));
+                        writer.WriteElementString("BILLED", "1");
+                        writer.WriteElementString("TOTAL_NET", Math.Round(Convert.ToDecimal(Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) - Convert.ToDecimal(row["Miktar"]) * Convert.ToDecimal(row["Birim Fiyat"]) / 100 * Convert.ToDecimal(row["indirim oranı"])), 2).ToString().Replace(',', '.'));
+                        writer.WriteElementString("DATA_REFERENCE", "1");
+                        writer.WriteElementString("DISPATCH_NUMBER", "0000000000000001");
+                        if (!row.IsNull("Seri/Lot"))
+                        {
+                            serialDetails = getSerialDetails(row["Seri/Lot"].ToString());
+                            //Seri no veritabanı kontrolü
+                            if (serialDetails["STATE"] == "2")
+                                MessageBox.Show("Xml içeri aktarım yapılamaz.\n\nSeri No (" + row["Seri/Lot"] + ") Daha Önceden İşlenmiş. Lütfen kontrol edip tekrar deneyin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            writer.WriteStartElement("SL_DETAILS");
+                            writer.WriteStartElement("SERIAL_LOT_TRN");
+                            writer.WriteElementString("INTERNAL_REFERENCE", "9");
+                            writer.WriteElementString("SOURCE_MT_REFERENCE", "1");
+                            writer.WriteElementString("SOURCE_SLT_REFERENCE", serialDetails["SOURCE_SLT_REFERENCE"]);
+                            writer.WriteElementString("SOURCE_QUANTITY", "1");
+                            writer.WriteElementString("IOCODE", "1");
+                            writer.WriteElementString("SL_TYPE", "2");
+                            writer.WriteElementString("SL_CODE", row["Seri/Lot"].ToString());
+                            writer.WriteElementString("MU_QUANTITY", "1");
+                            writer.WriteElementString("UNIT_CODE", row["Birim"].ToString());
+                            writer.WriteElementString("QUANTITY", "");
+                            writer.WriteElementString("UNIT_CONV1", "1");
+                            writer.WriteElementString("UNIT_CONV2", "1");
+                            writer.WriteElementString("DATE_EXPIRED", invoiceDates[fis.Key].AddMonths(-1).ToString("dd/MM/yyyy"));
+                            writer.WriteElementString("DATA_REFERENCE", "9");
+                            writer.WriteElementString("ORGLOGOID", "");
+                            writer.WriteElementString("ORGLINKREF", "0");
+                            writer.WriteEndElement();//SERIAL_LOT_TRN 
+                            writer.WriteEndElement();//SL_DETAILS
+                        }
+                        writer.WriteStartElement("DETAILS");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();//DETAILS
+                        writer.WriteElementString("DIST_ORD_REFERENCE", "0");
+                        writer.WriteStartElement("CAMPAIGN_INFOS");
+                        writer.WriteStartElement("CAMPAIGN_INFO");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();//CAMPAIGN_INFO
+                        writer.WriteEndElement();//CAMPAIGN_INFOS
+                        writer.WriteElementString("MULTI_ADD_TAX", "0");
+                        writer.WriteElementString("EDT_CURR", "1");
+                        writer.WriteElementString("EDT_PRICE", "50");
+                        writer.WriteStartElement("ORGLOGOID");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();
+                        writer.WriteStartElement("GENIUSFLDSLIST");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();
+                        writer.WriteStartElement("DEFNFLDSLIST");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();
+                        writer.WriteElementString("MONTH", invoiceDates[fis.Key].ToString("MM"));
+                        writer.WriteElementString("YEAR", invoiceDates[fis.Key].ToString("yyyy"));
+                        writer.WriteStartElement("PREACCLINES");
+                        writer.WriteRaw("");
+                        writer.WriteEndElement();
+                        if (row.IsNull("Seri/Lot"))
+                            writer.WriteElementString("MASTER_DEF", "DENEME STOK03");
+                        else
+                            writer.WriteElementString("MASTER_DEF", "DENEME STOK01");
+                        writer.WriteElementString("FOREIGN_TRADE_TYPE", "0");
+                        writer.WriteElementString("DISTRIBUTION_TYPE_WHS", "0");
+                        writer.WriteElementString("DISTRIBUTION_TYPE_FNO", "0");
+                        writer.WriteEndElement();//TRANSACTION
+                    }
+                }
+                writer.WriteEndElement();//TRANSACTIONS
+                writer.WriteStartElement("PAYMENT_LIST");
+                writer.WriteStartElement("PAYMENT");
+                writer.WriteElementString("INTERNAL_REFERENCE", "0");
+                writer.WriteElementString("DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("MODULENR", "4");
+                writer.WriteElementString("TRCODE", "8");
+                writer.WriteElementString("TOTAL", "5050");
+                writer.WriteElementString("PROCDATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("REPORTRATE", "1");
+                writer.WriteElementString("DATA_REFERENCE", "0");
+                writer.WriteElementString("DISCOUNT_DUEDATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                writer.WriteElementString("PAY_NO", "1");
+                writer.WriteStartElement("DISCTRLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DISCTRDELLIST", "0");
+                writer.WriteEndElement();//PAYMENT
+                writer.WriteEndElement();//PAYMENT_LIST
+                writer.WriteStartElement("ORGLOGOID");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteStartElement("DEFNFLDSLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DEDUCTIONPART1", "2");
+                writer.WriteElementString("DEDUCTIONPART2", "3");
+                writer.WriteElementString("DATA_LINK_REFERENCE", "1");
+                writer.WriteStartElement("INTEL_LIST");
+                writer.WriteStartElement("INTEL");
+                writer.WriteElementString("LOGICALREF", "0");
+                writer.WriteEndElement();//INTEL
+                writer.WriteEndElement();//INTEL_LIST
+                writer.WriteElementString("AFFECT_RISK", "0");
+                writer.WriteStartElement("PREACCLINES");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DOC_DATE", invoiceDates[fis.Key].ToString("dd/MM/yyyy"));
+                if (cariIsEinvoice(cariDetails[fis.Key]))
+                    writer.WriteElementString("EINVOICE", "1");
+                writer.WriteElementString("PROFILE_ID", "2");
+                writer.WriteElementString("EDURATION_TYPE", "0");
+                writer.WriteElementString("EINVOICE_TURETPRICESTR", "Sıfır TL");
+                writer.WriteElementString("TOTAL_NET_STR", "BeşBinElli TL");
+                writer.WriteElementString("EXIMVAT", "0");
+                writer.WriteElementString("EARCHIVEDETR_INTPAYMENTTYPE", "0");
+                writer.WriteStartElement("OKCINFO_LIST");
+                writer.WriteStartElement("OKCINFO");
+                writer.WriteElementString("INTERNAL_REFERENCE", "0");
+                writer.WriteEndElement();//OKCINFO
+                writer.WriteEndElement();//OKCINFO_LIST
+                writer.WriteStartElement("LABEL_LIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteEndElement();//INVOICE
+                invoiceNumber++;
+            }
+            writer.WriteEndElement();
+            writer.Flush();
+            writer.Close();
+        }

@@ -1,0 +1,640 @@
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.OleDb;
+using System.Data.SqlClient;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Windows.Forms;
+using System.Xml;
+
+
+namespace XmlXlsConverter
+{
+    public partial class Form1 : Form
+    {
+        static string xlsFilePath;
+        static string xlsFileName;
+        static string xlsFileExtension;
+        int invoiceNumber = 1, invoiceNumFromDB = 0;
+        string nameString = "ZZZ", compName, dbName, dbUser, dbPass, compNo, invPeriod, filePath, cariCode;
+
+        public Form1()
+        {
+            InitializeComponent();
+            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "settings.xml"))
+            {
+                MessageBox.Show("Uygulama Ayarlarınız Henüz Yapılmamış Gözüküyor. Lütfen Ayarlar Butonuna Tıklayıp Ayarlarınızı Girin", "Merhaba", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                Form2 f2 = new Form2();
+                f2.ShowDialog();
+            }
+            textBox3.Text = "Özet Bilgi Giden Fatura_1";
+        }
+
+        public String CariText
+        {
+            get
+            {
+                string ck = this.cariCode;
+                return ck;
+            }
+        }
+
+        private void button3_Click(object sender, EventArgs e)
+        {
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "Excel Files|*.xls;*.xlsx;*.xlsm";
+            if (ofd.ShowDialog() == DialogResult.OK)
+            {
+                textBox2.Text = ofd.FileName;
+                xlsFilePath = ofd.FileName;
+                int pos = xlsFilePath.LastIndexOf("\\");
+                int pos2 = xlsFilePath.LastIndexOf(".");
+                int len = xlsFilePath.Length;
+                xlsFileName = xlsFilePath.Substring(pos, pos2 - pos);
+                int posExt = len - pos2;
+                xlsFileExtension = xlsFilePath.Substring(pos2 + 1);
+
+            }
+        }
+
+        private void button4_Click(object sender, EventArgs e)
+        {
+            if (textBox3.Text == "" || xlsFilePath == "")
+            {
+                MessageBox.Show("Lütfen dosya seçin ve sayfa adını yazın!");
+            }
+            else
+            {
+                string pageName = textBox3.Text;
+                try
+                {
+                    OleDbConnection MyConnection;
+                    DataSet ds;
+                    OleDbDataAdapter MyCommand;
+                    if (xlsFileExtension == "xls")
+                        MyConnection = new OleDbConnection("provider=Microsoft.Jet.OLEDB.4.0;Data Source='" + xlsFilePath + "';Extended Properties=Excel 8.0;");
+                    else
+                        MyConnection = new OleDbConnection("Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" + xlsFilePath + ";Extended Properties=\"Excel 12.0;HDR=Yes;IMEX=2\"");
+                    MyCommand = new OleDbDataAdapter("select * from [" + pageName + "$] WHERE NOT ([Fatura Numarası] = '')", MyConnection);
+                    MyCommand.TableMappings.Add("Table", "Fields");
+                    ds = new DataSet();
+                    MyCommand.Fill(ds);
+                    MyConnection.Close();
+                    dataGridView1.DataSource = ds.Tables[0];
+                    getSettings();
+                    button4.Enabled = false;
+                    BuildXml(ds);
+                    button4.Enabled = true;
+                    MessageBox.Show("XML dosyası " + xlsFileName + ".xml ismi ile seçili dosya olunda oluşturuldu.");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.ToString());
+                }
+            }
+        }
+
+        private void getInvoiceNumber(string arpShortName)
+        {
+            string connetionString, sql;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            int invDb = 0;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "Select top 1 TRANNO from LG_" + compNo + "_" + invPeriod + "_CLFLINE where TRANNO like'%" + arpShortName + "%' order by DATE_ desc";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                string bill = dataReader.GetString(0);
+                invDb = Convert.ToInt32(bill.Substring(7));
+                if (invDb != invoiceNumFromDB)
+                {
+                    invoiceNumFromDB = invDb;
+                    invoiceNumber = invoiceNumFromDB + 1;
+                }
+            }
+            nameString = arpShortName;
+            cnn.Close();
+        }
+
+        private Dictionary<string, string> getSerialDetails(string serialNo)
+        {
+            Dictionary<string, string> dict = new Dictionary<string, string>();
+            string connetionString, sql, slRef;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT LOGICALREF, STATE from LG_" + compNo + "_" + invPeriod + "_SERILOTN where CODE = '" + serialNo + "'";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                dict["STATE"] = dataReader.GetValue(1).ToString();
+                slRef = dataReader.GetValue(0).ToString();
+            }
+            else
+            {
+                dict["STATE"] = "";
+                slRef = "";
+                MessageBox.Show("Xml içeri aktarım yapılamaz.\n\nSeri No (" + serialNo + ") Mevcut değil. Lütfen kontrol edip tekrar deneyin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            cnn.Close();
+            if(slRef != "")
+                dict["SOURCE_SLT_REFERENCE"] = getSltRef(slRef);
+            else
+                dict["SOURCE_SLT_REFERENCE"] = "";
+            return dict;
+        }
+
+        private string getSltRef(string slRef)
+        {
+            string connetionString, sql, sltRef;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT LOGICALREF FROM LG_" + compNo + "_" + invPeriod + "_SLTRANS WHERE SLREF = " + slRef;
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                slRef = dataReader.GetValue(0).ToString();
+            }
+            else
+            {
+                slRef = "";
+                MessageBox.Show("Xml içeri aktarım yapılamaz.\n\nSeri No Mevcut değil. Lütfen kontrol edip tekrar deneyin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            cnn.Close();
+            return slRef;
+        }
+
+        private void cariControl(string cariNo)
+        {
+            Dictionary<string, string> dict = new Dictionary<string, string>();
+            string connetionString, sql;
+            SqlConnection cnn, cnn2;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT * from LG_" + compNo + "_CLCARD WHERE CODE = '" + cariNo + "'";
+            cnn = new SqlConnection(connetionString);
+            cnn2 = new SqlConnection(connetionString);
+            cnn.Open();
+            cnn2.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (!dataReader.Read())
+            {
+                DialogResult dialogResult = MessageBox.Show(cariNo + " kodlu cari hesap bulunamadı. Yeni bir cari hesap " + cariNo + " koduyla oluşturulsun mu?", "Uyarı", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (dialogResult == DialogResult.Yes)
+                {
+                    cariCode = cariNo;
+                    AddClCard form = new AddClCard();
+                    form.ShowDialog();
+                }
+                else if (dialogResult == DialogResult.No)
+                {
+                    MessageBox.Show("Lütfen " + cariNo + " kodunun bulunduğu alanı düzeltip tekrar deneyin.", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+            cnn.Close();
+            cnn2.Close();
+        }
+
+        private bool cariIsEinvoice(string cariNo)
+        {
+            string connetionString, sql;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT ACCEPTEINV from LG_" + compNo + "_CLCARD WHERE CODE = '" + cariNo + "'";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                if (!dataReader.IsDBNull(0))
+                {
+                    int einvoice = Convert.ToInt32(dataReader.GetValue(0));
+                    if (einvoice == 1)
+                    {
+                        cnn.Close();
+                        return true;
+                    }
+                }
+            }
+            cnn.Close();
+            return false;
+        }
+
+        //private void itemControl(string itemCode)
+        //{
+        //    string connetionString, sql;
+        //    SqlConnection cnn, cnn2;
+        //    SqlDataReader dataReader;
+        //    connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+        //    sql = "SELECT * from LG_" + compNo + "_CLCARD WHERE CODE = '" + itemCode + "'";
+        //    cnn = new SqlConnection(connetionString);
+        //    cnn.Open();
+        //    SqlCommand cmd = new SqlCommand(sql, cnn);
+        //    dataReader = cmd.ExecuteReader();
+        //    if (!dataReader.Read())
+        //    {
+        //        DialogResult dialogResult = MessageBox.Show(cariNo + " kodlu cari hesap bulunamadı. Yeni bir cari hesap " + cariNo + " koduyla oluşturulsun mu?", "Uyarı", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        //    }
+        //}
+
+        private string createArpCode()
+        {
+            string connetionString, sql, arpCode = "";
+            int code;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT MAX(SUBSTRING(CODE, 8, 100)) from LG_" + compNo + "_CLCARD WHERE CODE LIKE'120.04.%'";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                code = Convert.ToInt32(dataReader.GetValue(0).ToString());
+                code++;
+                arpCode = "120.04." + code.ToString("000000");
+            }
+            cnn.Close();
+            return arpCode;
+        }
+
+        private string getMasterCode(string seriNo)
+        {
+            string connetionString, sql, masterCode = "";
+            int code;
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT CODE FROM LG_" + compNo + "_ITEMS WHERE LOGICALREF = (SELECT ITEMREF FROM LG_" + compNo + "_" + invPeriod + "_SERILOTN WHERE CODE = '" + seriNo + "')";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                masterCode = dataReader.GetValue(0).ToString();
+            }
+            cnn.Close();
+            return masterCode;
+        }
+
+        private void insertCari(string name, string tc, string arpCode)
+        {
+            string connetionString, sql;
+            SqlConnection cnn;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=LOGO;User ID=" + dbUser + ";Password=" + dbPass;
+       
+                sql = "INSERT INTO LG_" + compNo + "_CLCARD(ACTIVE, CARDTYPE, CODE, DEFINITION_, TCKNO) VALUES(0, 3, '"+ arpCode + "','" + name + "','" + tc + "')";
+            
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            if (cmd.ExecuteNonQuery() > 0)
+            {
+                //MessageBox.Show(arpCode + " Kodlu Cari başarıyla oluşturuldu!", "Bilgi", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+                MessageBox.Show(arpCode+ " Kodlu Cari oluşturulamadı!, Lütfen SQL ayarlarınızı kontrol edin.", "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            cnn.Close();
+        }
+
+        private string yaziyaCevir(decimal tutar)
+        {
+            string sTutar = tutar.ToString("F2").Replace('.', ','); // Replace('.',',') ondalık ayracının . olma durumu için
+            string lira = sTutar.Substring(0, sTutar.IndexOf(',')); //tutarın tam kısmı
+            string kurus = sTutar.Substring(sTutar.IndexOf(',') + 1, 2);
+            string yazi = "";
+            string[] birler = { "", "Bir", "İki", "Üç", "Dört", "Beş", "Altı", "Yedi", "Sekiz", "Dokuz" };
+            string[] onlar = { "", "On", "Yirmi", "Otuz", "Kırk", "Elli", "Altmış", "Yetmiş", "Seksen", "Doksan" };
+            string[] binler = { "Katrilyon", "Trilyon", "Milyar", "Milyon", "Bin", "" }; //KATRİLYON'un önüne ekleme yapılarak artırabilir.
+            int grupSayisi = binler.Length; //sayıdaki 3'lü grup sayısı. katrilyon içi 6. (1.234,00 daki grup sayısı 2'dir.)
+            lira = lira.PadLeft(grupSayisi * 3, '0'); //sayının soluna '0' eklenerek sayı 'grup sayısı x 3' basakmaklı yapılıyor.
+            string grupDegeri;
+            for (int i = 0; i < grupSayisi * 3; i += 3) //sayı 3'erli gruplar halinde ele alınıyor.
+            {
+                grupDegeri = "";
+                if (lira.Substring(i, 1) != "0")
+                    grupDegeri += birler[Convert.ToInt32(lira.Substring(i, 1))] + "Yüz"; //yüzler
+                if (grupDegeri == "BirYüz") //biryüz düzeltiliyor.
+                    grupDegeri = "Yüz";
+                grupDegeri += onlar[Convert.ToInt32(lira.Substring(i + 1, 1))]; //onlar
+                grupDegeri += birler[Convert.ToInt32(lira.Substring(i + 2, 1))]; //birler
+                if (grupDegeri != "") //binler
+                    grupDegeri += binler[i / 3];
+                if (grupDegeri == "BirBin") //birbin düzeltiliyor.
+                    grupDegeri = "Bin";
+                yazi += grupDegeri;
+            }
+            if (yazi != "")
+                yazi += " TL";
+            int yaziUzunlugu = yazi.Length;
+            if (kurus.Substring(0, 1) != "0") //kuruş onlar
+                yazi += onlar[Convert.ToInt32(kurus.Substring(0, 1))];
+            if (kurus.Substring(1, 1) != "0") //kuruş birler
+                yazi += birler[Convert.ToInt32(kurus.Substring(1, 1))];
+            if (yazi.Length > yaziUzunlugu)
+                yazi += " kuruş";
+            return yazi;
+        }
+
+        private void getSettings()
+        {
+            string tempS;
+            XmlDocument doc = new XmlDocument();
+            doc.Load(AppDomain.CurrentDomain.BaseDirectory + "settings.xml");
+            compName = doc.SelectSingleNode("/Settings/COMPANY_SHORT_NAME[1]").InnerText;
+            dbName = doc.SelectSingleNode("/Settings/DB_NAME[1]").InnerText;
+            dbUser = doc.SelectSingleNode("/Settings/DB_USERNAME[1]").InnerText;
+            dbPass = doc.SelectSingleNode("/Settings/DB_PASSWORD[1]").InnerText;
+            compNo = doc.SelectSingleNode("/Settings/COMPANY_NO[1]").InnerText;
+            invPeriod = doc.SelectSingleNode("/Settings/INVOICE_PERIOD[1]").InnerText;
+            tempS = doc.SelectSingleNode("/Settings/FILE_PATH[1]").InnerText;
+            filePath = tempS.Replace("/", "\\");
+            filePath += "\\";
+        }
+
+        private void button5_Click(object sender, EventArgs e)
+        {
+            Form2 f2 = new Form2();
+            f2.ShowDialog();
+            button4.Enabled = true;
+        }
+
+        private void BuildXml(DataSet ds)
+        {
+            //string cariKod = ds.Tables[0].Rows[1]["cari kodu"].ToString();
+            int vatRate = 18, odemePlanKodu = 0;
+            bool hasDiscount = false;
+
+            //getInvoiceNumber(compName);
+
+            //Initialize invoiceList and cariKod
+
+            var sts = new XmlWriterSettings()
+            {
+                Indent = true,
+                Encoding = Encoding.GetEncoding("ISO-8859-9"),
+                ConformanceLevel = ConformanceLevel.Document,
+                IndentChars = ("  "),
+            };
+
+            XmlWriter writer = XmlWriter.Create(filePath + xlsFileName + ".xml", sts);
+            writer.WriteStartElement("SALES_INVOICES");
+            foreach (DataRow row in ds.Tables[0].Rows)
+            {
+                string faturaNo = row["Fatura Numarası"].ToString(),
+                    cariAdi = row["Firma/Kişi Adı"].ToString(),
+                    cariTc = row["VKN/TCKN"].ToString(),
+                    toplamTutar = row["Ödenecek Tutar"].ToString(),
+                    not = row["Not"].ToString(),
+                    seriNo = row["Seri/IMEI No"].ToString(),
+                    ambarKodu = "1",
+                    isyeriKodu = "1",
+                    stokAdi = row["Stok Adı"].ToString(),
+                    toplamTutarYazi = yaziyaCevir(Math.Round(Convert.ToDecimal(toplamTutar), 2)),
+                    tarih = row["Fatura Tarihi"].ToString().Replace(".", "/") + " 00:00:00 AM",
+                    tarihFormat = "dd/MM/yyyy";
+
+                DateTime faturaTarih = DateTime.Parse(tarih);
+
+                string formatliTarih = faturaTarih.ToString(tarihFormat);
+                string cariKodu = createArpCode();
+                Decimal kdvOrani = 18;
+                Decimal kdvsizTutar = Math.Round(Convert.ToDecimal(toplamTutar) / (1 + (kdvOrani / 100)), 2);
+                Decimal kdv = Math.Round(Convert.ToDecimal(toplamTutar) - kdvsizTutar, 2);
+                string masterCode = getMasterCode(seriNo);
+
+                insertCari(cariAdi, cariTc, cariKodu);
+
+                writer.WriteStartElement("INVOICE");
+                writer.WriteAttributeString("DBOP", "INS");
+                writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                writer.WriteElementString("TYPE", "8");
+                writer.WriteElementString("NUMBER", faturaNo);
+                writer.WriteElementString("DATE", formatliTarih);
+                writer.WriteElementString("TIME", "254936320");
+                //writer.WriteElementString("DOC_NUMBER", nameString + billDate.ToString("yyyyMM") + billNo.ToString("0000000"));
+                //cariControl(cariDetails[fis.Key]);
+                writer.WriteElementString("ARP_CODE", cariKodu);
+                writer.WriteElementString("SOURCE_WH", ambarKodu);
+                writer.WriteElementString("SOURCE_COST_GRP", "1");
+                writer.WriteElementString("POST_FLAGS", "247");
+                writer.WriteElementString("VAT_RATE", "18");
+                writer.WriteElementString("TOTAL_DISCOUNTED", kdvsizTutar.ToString());
+                writer.WriteElementString("TOTAL_VAT", kdv.ToString());
+                writer.WriteElementString("TOTAL_GROSS", kdvsizTutar.ToString());
+                writer.WriteElementString("TOTAL_NET", toplamTutar);
+                writer.WriteElementString("NOTES1", not);
+                writer.WriteElementString("TC_NET", toplamTutar);
+                writer.WriteElementString("RC_XRATE", "1");
+                writer.WriteElementString("RC_NET", toplamTutar);
+                writer.WriteElementString("DIVISION", isyeriKodu);
+                writer.WriteElementString("CREATED_BY", "1");
+                writer.WriteElementString("DATE_CREATED", formatliTarih);
+                writer.WriteElementString("HOUR_CREATED", faturaTarih.ToString("hh"));
+                writer.WriteElementString("MIN_CREATED", faturaTarih.ToString("mm"));
+                writer.WriteElementString("SEC_CREATED", faturaTarih.ToString("ss"));
+                writer.WriteElementString("CURRSEL_TOTALS", "1");
+                writer.WriteElementString("DATA_REFERENCE", "1");
+                writer.WriteStartElement("DISPATCHES");
+                writer.WriteStartElement("DISPATCH");
+                writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                writer.WriteElementString("TYPE", "8");
+                writer.WriteElementString("NUMBER", faturaNo);
+                writer.WriteElementString("DATE", formatliTarih);
+                writer.WriteElementString("TIME", "254936320");
+                writer.WriteElementString("INVOICE_NUMBER", faturaNo);
+                writer.WriteElementString("ARP_CODE", cariKodu);
+                writer.WriteElementString("SOURCE_WH", ambarKodu);
+                writer.WriteElementString("SOURCE_COST_GRP", "1");
+                writer.WriteElementString("DIVISION", isyeriKodu);
+                writer.WriteElementString("INVOICED", "1");
+                writer.WriteElementString("TOTAL_DISCOUNTED", kdvsizTutar.ToString());
+                writer.WriteElementString("TOTAL_VAT", kdv.ToString());
+                writer.WriteElementString("TOTAL_GROSS", kdvsizTutar.ToString());
+                writer.WriteElementString("TOTAL_NET", toplamTutar);
+                writer.WriteElementString("RC_RATE", "1");
+                writer.WriteElementString("RC_NET", toplamTutar);
+                writer.WriteElementString("CREATED_BY", "1");
+                writer.WriteElementString("DATE_CREATED", formatliTarih);
+                writer.WriteElementString("HOUR_CREATED", faturaTarih.ToString("hh"));
+                writer.WriteElementString("MIN_CREATED", faturaTarih.ToString("mm"));
+                writer.WriteElementString("SEC_CREATED", faturaTarih.ToString("ss"));
+                writer.WriteElementString("CURRSEL_TOTALS", "1");
+                writer.WriteElementString("DATA_REFERENCE", "1");
+                writer.WriteElementString("ORIG_NUMBER", "0000000000000001");
+                writer.WriteStartElement("ORGLOGOID");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DEDUCTIONPART1", "2");
+                writer.WriteElementString("DEDUCTIONPART2", "3");
+                writer.WriteElementString("AFFECT_RISK", "0");
+                writer.WriteElementString("DISP_STATUS", "1");
+                writer.WriteElementString("SHIP_DATE", formatliTarih);
+                writer.WriteElementString("SHIP_TIME", "254936356");
+                writer.WriteElementString("DOC_DATE", formatliTarih);
+                writer.WriteElementString("DOC_TIME", "254936320");
+                //if (cariIsEinvoice(cariDetails[fis.Key]))
+                //    writer.WriteElementString("EINVOICE", "1");
+                writer.WriteEndElement(); //DISPATCH
+                writer.WriteEndElement(); //DISPATTCHES
+                writer.Flush();
+                writer.WriteStartElement("TRANSACTIONS");
+                writer.WriteStartElement("TRANSACTION");
+                writer.WriteElementString("INTERNAL_REFERENCE", "1");
+                writer.WriteElementString("TYPE", "0");
+                writer.WriteElementString("MASTER_CODE", masterCode); //SERI
+                writer.WriteElementString("SOURCEINDEX", "1"); 
+                writer.WriteElementString("SOURCECOSTGRP", "1"); 
+                writer.WriteElementString("QUANTITY", "1");
+                writer.WriteElementString("PRICE", kdvsizTutar.ToString());
+                writer.WriteElementString("TOTAL", kdvsizTutar.ToString());
+                writer.WriteElementString("RC_XRATE", "1");
+                writer.WriteElementString("UNIT_CODE", "ADET");
+                writer.WriteElementString("UNIT_CONV1", "1");
+                writer.WriteElementString("UNIT_CONV2", "1");
+                writer.WriteElementString("VAT_RATE", kdvOrani.ToString());
+                writer.WriteElementString("VAT_AMOUNT", kdv.ToString());//kdv
+                writer.WriteElementString("VAT_BASE", kdvsizTutar.ToString());
+                writer.WriteElementString("BILLED", "1");
+                writer.WriteElementString("TOTAL_NET", kdvsizTutar.ToString());
+                writer.WriteElementString("DATA_REFERENCE", "1");
+                writer.WriteElementString("DISPATCH_NUMBER", "0000000000000001");
+                Dictionary<string, string> serialDetails = getSerialDetails(seriNo);
+                //Seri no veritabanı kontrolü
+                if (serialDetails.ContainsKey("STATE") && serialDetails["STATE"] == "2")
+                    MessageBox.Show("Xml içeri aktarım yapılamaz.\n\nSeri No (" + seriNo + ") Daha Önceden İşlenmiş. Lütfen kontrol edip tekrar deneyin.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                writer.WriteStartElement("SL_DETAILS");
+                writer.WriteStartElement("SERIAL_LOT_TRN");
+                writer.WriteElementString("INTERNAL_REFERENCE", "9");
+                writer.WriteElementString("SOURCE_MT_REFERENCE", "1");
+                writer.WriteElementString("SOURCE_SLT_REFERENCE", serialDetails["SOURCE_SLT_REFERENCE"]);
+                writer.WriteElementString("SOURCE_QUANTITY", "1");
+                writer.WriteElementString("IOCODE", "1");
+                writer.WriteElementString("SOURCE_WH", ambarKodu);
+                writer.WriteElementString("SL_TYPE", "2");
+                writer.WriteElementString("SL_CODE", seriNo);
+                writer.WriteElementString("MU_QUANTITY", "1");
+                writer.WriteElementString("UNIT_CODE", "ADET");
+                writer.WriteElementString("QUANTITY", "1");
+                writer.WriteElementString("UNIT_CONV1", "1");
+                writer.WriteElementString("UNIT_CONV2", "1");
+                writer.WriteElementString("DATE_EXPIRED", faturaTarih.AddMonths(-1).ToString("dd/MM/yyyy"));
+                writer.WriteElementString("DATA_REFERENCE", "9");
+                writer.WriteElementString("ORGLOGOID", "");
+                writer.WriteElementString("ORGLINKREF", "0");
+                writer.WriteEndElement();//SERIAL_LOT_TRN 
+                writer.WriteEndElement();//SL_DETAILS
+
+                writer.WriteStartElement("DETAILS");
+                writer.WriteRaw("");
+                writer.WriteEndElement();//DETAILS
+                writer.WriteElementString("DIST_ORD_REFERENCE", "0");
+                writer.WriteStartElement("CAMPAIGN_INFOS");
+                writer.WriteStartElement("CAMPAIGN_INFO");
+                writer.WriteRaw("");
+                writer.WriteEndElement();//CAMPAIGN_INFO
+                writer.WriteEndElement();//CAMPAIGN_INFOS
+                writer.WriteElementString("MULTI_ADD_TAX", "0");
+                writer.WriteElementString("EDT_CURR", "1");
+                writer.WriteElementString("EDT_PRICE", kdvsizTutar.ToString());
+                writer.WriteStartElement("ORGLOGOID");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteStartElement("GENIUSFLDSLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteStartElement("DEFNFLDSLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("MONTH", faturaTarih.ToString("MM"));
+                writer.WriteElementString("YEAR", faturaTarih.ToString("yyyy"));
+                writer.WriteStartElement("PREACCLINES");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("FOREIGN_TRADE_TYPE", "0");
+                writer.WriteElementString("DISTRIBUTION_TYPE_WHS", "0");
+                writer.WriteElementString("DISTRIBUTION_TYPE_FNO", "0");
+                writer.WriteEndElement();//TRANSACTION
+
+
+                writer.WriteEndElement();//TRANSACTIONS
+                writer.WriteStartElement("PAYMENT_LIST");
+                writer.WriteStartElement("PAYMENT");
+                writer.WriteElementString("INTERNAL_REFERENCE", "0");
+                writer.WriteElementString("DATE", formatliTarih);
+                writer.WriteElementString("MODULENR", "4");
+                writer.WriteElementString("TRCODE", "8");
+                writer.WriteElementString("TOTAL", toplamTutar);
+                writer.WriteElementString("PROCDATE", formatliTarih);
+                writer.WriteElementString("REPORTRATE", "1");
+                writer.WriteElementString("DATA_REFERENCE", "0");
+                writer.WriteElementString("DISCOUNT_DUEDATE", formatliTarih);
+                writer.WriteElementString("PAY_NO", "1");
+                writer.WriteStartElement("DISCTRLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DISCTRDELLIST", "0");
+                writer.WriteEndElement();//PAYMENT
+                writer.WriteEndElement();//PAYMENT_LIST
+                writer.WriteStartElement("ORGLOGOID");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteStartElement("DEFNFLDSLIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DEDUCTIONPART1", "2");
+                writer.WriteElementString("DEDUCTIONPART2", "3");
+                writer.WriteElementString("DATA_LINK_REFERENCE", "1");
+                writer.WriteStartElement("INTEL_LIST");
+                writer.WriteStartElement("INTEL");
+                writer.WriteElementString("LOGICALREF", "0");
+                writer.WriteEndElement();//INTEL
+                writer.WriteEndElement();//INTEL_LIST
+                writer.WriteElementString("AFFECT_RISK", "0");
+                writer.WriteStartElement("PREACCLINES");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteElementString("DOC_DATE", formatliTarih);
+                //if (cariIsEinvoice(cariDetails[fis.Key]))
+                //    writer.WriteElementString("EINVOICE", "1");
+                writer.WriteElementString("EDURATION_TYPE", "0");
+                writer.WriteElementString("EINVOICE_TURETPRICESTR", "Sıfır TL");
+                writer.WriteElementString("TOTAL_NET_STR", toplamTutarYazi);
+                writer.WriteElementString("EXIMVAT", "0");
+                writer.WriteElementString("EARCHIVEDETR_INTPAYMENTTYPE", "0");
+                writer.WriteStartElement("OKCINFO_LIST");
+                writer.WriteStartElement("OKCINFO");
+                writer.WriteElementString("INTERNAL_REFERENCE", "0");
+                writer.WriteEndElement();//OKCINFO
+                writer.WriteEndElement();//OKCINFO_LIST
+                writer.WriteStartElement("LABEL_LIST");
+                writer.WriteRaw("");
+                writer.WriteEndElement();
+                writer.WriteEndElement();//INVOICE
+                invoiceNumber++;
+            }
+            writer.WriteEndElement();
+            writer.Flush();
+            writer.Close();
+        }
+    }
+}
+
