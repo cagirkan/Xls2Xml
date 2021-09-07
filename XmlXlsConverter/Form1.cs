@@ -372,6 +372,36 @@ namespace XmlXlsConverter
             return ambarKodu;
         }
 
+        private bool seridenAmbarKontrol(string seriNo, string ambarNo)
+        {
+            string connetionString, sql, ambarKodu = "";
+            SqlConnection cnn;
+            SqlDataReader dataReader;
+            connetionString = @"Data Source=" + dbName + ";Initial Catalog=" + dbn + ";User ID=" + dbUser + ";Password=" + dbPass;
+            sql = "SELECT INVENNO FROM LG_"+ compNo + "_" + invPeriod + "_SLTRANS WHERE SLREF = (SELECT TOP 1 LOGICALREF FROM LG_" + compNo + "_" + invPeriod + "_SERILOTN WHERE CODE = '" + seriNo + "' )";
+            cnn = new SqlConnection(connetionString);
+            cnn.Open();
+            SqlCommand cmd = new SqlCommand(sql, cnn);
+            dataReader = cmd.ExecuteReader();
+            if (dataReader.Read())
+            {
+                ambarKodu = dataReader.GetValue(0).ToString();
+                if(ambarKodu != null && ambarKodu == ambarNo)
+                {
+                    return true;
+                }
+            }
+            cnn.Close();
+            if (ambarKodu == "")
+            {
+                //errorList.Add(seriNo + " seri numarası kaydı hiçbir ambarda bulunamadı.");
+                return true;
+            }
+            else
+                errorList.Add(seriNo + " seri numaralı ürün " + ambarNo + " kodlu ambarda değil." + ambarKodu + " no'lu ambarda kayıtlıdır!");
+            return false;
+        }
+
         private void insertCari(string name, string tc, string arpCode, string eInvoice)
         {
             string connetionString, sql;
@@ -575,6 +605,8 @@ namespace XmlXlsConverter
                 }
 
                 string ambarKodu = getAmbarKodu(ambarAdi);
+                if (satis && !seridenAmbarKontrol(seriNo, ambarKodu))
+                    break;
                 Decimal kdvOraniD = 18;
                 Decimal kdvsizTutarD = Math.Round(Convert.ToDecimal(toplamTutar) / (1 + (kdvOraniD / 100)), 2);
                 Decimal kdvD = Math.Round(Convert.ToDecimal(toplamTutar) - kdvsizTutarD, 2);
