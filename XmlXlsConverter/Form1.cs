@@ -38,7 +38,7 @@ namespace XmlXlsConverter
                 Form2 f2 = new Form2();
                 f2.ShowDialog();
             }
-            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "meg.xml"))
+            if (!File.Exists(AppDomain.CurrentDomain.BaseDirectory + "meg.xml") || !validator())
             {
                 MessageBox.Show("Programınızın Lisansı Yapılmamış Gözüküyor. Lütfen Meg Bilişim ile iletişime geçiniz.", "Uyarı", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 licensed = false;
@@ -75,7 +75,21 @@ namespace XmlXlsConverter
             filePath = tempS.Replace("/", "\\");
             filePath += "\\";
         }
+        private bool validator()
+        {
+            XmlDocument doc2 = new XmlDocument();
+            doc2.Load(AppDomain.CurrentDomain.BaseDirectory + "meg.xml");
+            string lic_key = AesOperation.DecryptString(secretKey, doc2.SelectSingleNode("/MEG/LICENSE_KEY[1]").InnerText);
 
+            SKGL.Validate validateLicense = new SKGL.Validate();
+            validateLicense.secretPhase = licenseSecretPhase;
+            validateLicense.Key = lic_key;
+            if (validateLicense.IsValid && !validateLicense.IsExpired)
+            {
+                return true;
+            }
+            return false;
+        }
         private void pictureBox1_Click(object sender, EventArgs e)
         {
             System.Diagnostics.Process.Start("https://www.megyazilim.com.tr");
