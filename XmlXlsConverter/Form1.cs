@@ -392,7 +392,7 @@ namespace XmlXlsConverter
             SqlConnection cnn;
             SqlDataReader dataReader;
             connetionString = @"Data Source=" + dbName + ";Initial Catalog=" + dbn + ";User ID=" + dbUser + ";Password=" + dbPass;
-            sql = "SELECT INVENNO FROM LG_"+ compNo + "_" + invPeriod + "_SLTRANS WHERE SLREF = (SELECT TOP 1 LOGICALREF FROM LG_" + compNo + "_" + invPeriod + "_SERILOTN WHERE CODE = '" + seriNo + "' )";
+            sql = "SELECT TOP 1 INVENNO FROM LG_" + compNo + "_" + invPeriod + "_SLTRANS WHERE SLREF = (SELECT TOP 1 LOGICALREF FROM LG_" + compNo + "_" + invPeriod + "_SERILOTN WHERE CODE = '" + seriNo + "' ) ORDER BY DATE_ DESC, LOGICALREF DESC";
             cnn = new SqlConnection(connetionString);
             cnn.Open();
             SqlCommand cmd = new SqlCommand(sql, cnn);
